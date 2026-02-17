@@ -81,6 +81,10 @@ let musicGain = null;
 let musicNodes = [];
 let musicTimer = null;
 
+function getMasterVolume() {
+  return Number(volumeInput.value) * 0.6;
+}
+
 function showSection(id) {
   document.querySelectorAll('.menu-section').forEach((el) => el.classList.add('hidden'));
   document.getElementById(id).classList.remove('hidden');
@@ -324,7 +328,7 @@ function ensureMusic() {
   if (audioCtx) return;
   audioCtx = new (window.AudioContext || window.webkitAudioContext)();
   musicGain = audioCtx.createGain();
-  musicGain.gain.value = Number(volumeInput.value) * 0.35;
+  musicGain.gain.value = getMasterVolume();
   musicGain.connect(audioCtx.destination);
 }
 
@@ -346,25 +350,82 @@ function playMusicLoop() {
   audioCtx.resume();
   stopMusic();
 
-  const melody = [261.63, 329.63, 392.0, 329.63, 293.66, 349.23, 440.0, 349.23];
+  const progression = [
+    [130.81, 196.0, 261.63],
+    [146.83, 220.0, 293.66],
+    [174.61, 261.63, 329.63],
+    [196.0, 293.66, 392.0],
+  ];
+  const lead = [523.25, 587.33, 659.25, 587.33, 698.46, 659.25, 587.33, 523.25];
   const now = audioCtx.currentTime + 0.05;
-  melody.forEach((freq, i) => {
-    const t = now + i * 0.34;
+
+  progression.forEach((chord, i) => {
+    const t = now + i * 0.72;
+    chord.forEach((freq) => {
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(freq, t);
+      gain.gain.setValueAtTime(0.0001, t);
+      gain.gain.exponentialRampToValueAtTime(0.028, t + 0.1);
+      gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.7);
+      osc.connect(gain);
+      gain.connect(musicGain);
+      osc.start(t);
+      osc.stop(t + 0.72);
+      musicNodes.push(osc, gain);
+    });
+  });
+
+  lead.forEach((freq, i) => {
+    const t = now + i * 0.36;
     const osc = audioCtx.createOscillator();
     const gain = audioCtx.createGain();
-    osc.type = i % 2 ? 'triangle' : 'sine';
+    osc.type = i % 2 ? 'square' : 'sine';
     osc.frequency.setValueAtTime(freq, t);
     gain.gain.setValueAtTime(0.0001, t);
-    gain.gain.exponentialRampToValueAtTime(0.07, t + 0.03);
-    gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.31);
+    gain.gain.exponentialRampToValueAtTime(0.04, t + 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.33);
     osc.connect(gain);
     gain.connect(musicGain);
     osc.start(t);
-    osc.stop(t + 0.34);
+    osc.stop(t + 0.36);
     musicNodes.push(osc, gain);
   });
 
-  musicTimer = setTimeout(playMusicLoop, 2700);
+  musicTimer = setTimeout(playMusicLoop, 2900);
+}
+
+function playSfx(type) {
+  ensureMusic();
+  if (!audioCtx || !musicGain) return;
+  audioCtx.resume();
+
+  const now = audioCtx.currentTime + 0.01;
+  const osc = audioCtx.createOscillator();
+  const gain = audioCtx.createGain();
+
+  if (type === 'collect') {
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(620, now);
+    osc.frequency.exponentialRampToValueAtTime(880, now + 0.12);
+    gain.gain.setValueAtTime(0.0001, now);
+    gain.gain.exponentialRampToValueAtTime(0.09, now + 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.16);
+    osc.stop(now + 0.18);
+  } else {
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime(300, now);
+    osc.frequency.exponentialRampToValueAtTime(520, now + 0.2);
+    gain.gain.setValueAtTime(0.0001, now);
+    gain.gain.exponentialRampToValueAtTime(0.08, now + 0.05);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.32);
+    osc.stop(now + 0.34);
+  }
+
+  osc.connect(gain);
+  gain.connect(musicGain);
+  osc.start(now);
 }
 
 function setupUi() {
@@ -396,7 +457,7 @@ function setupUi() {
   volumeInput.addEventListener('input', () => {
     volumeValue.textContent = volumeInput.value;
     if (musicGain && audioCtx) {
-      musicGain.gain.setTargetAtTime(Number(volumeInput.value) * 0.35, audioCtx.currentTime, 0.05);
+      musicGain.gain.setTargetAtTime(getMasterVolume(), audioCtx.currentTime, 0.05);
     }
   });
 
@@ -626,6 +687,7 @@ function updateCollectibles() {
       collectible.mesh.visible = false;
       collectedCount += 1;
       hudCollectibles.textContent = `${collectedCount}/${TOTAL_COLLECTIBLES}`;
+      playSfx('collect');
     }
   }
 }
@@ -647,7 +709,10 @@ function loop() {
     updateCollectibles();
     updateHud();
     const dist = player.pos.distanceTo(exitZone.center);
-    if (dist < exitZone.radius && collectedCount >= TOTAL_COLLECTIBLES) winGame(false);
+    if (dist < exitZone.radius && collectedCount >= TOTAL_COLLECTIBLES) {
+      playSfx('win');
+      winGame(false);
+    }
   }
   renderer.render(scene, camera);
 }
