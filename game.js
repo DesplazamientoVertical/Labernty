@@ -6,6 +6,9 @@ const LEVELS = {
   hard: { label: 'Difícil', size: 23, timeLimit: 150, wallHeight: 2.6 },
 };
 
+const TOTAL_COLLECTIBLES = 10;
+const RANKING_KEY = 'labernty-seed-rankings';
+
 const canvas = document.getElementById('gameCanvas');
 const overlay = document.getElementById('overlay');
 const hud = document.getElementById('hud');
@@ -16,6 +19,9 @@ const hudLimit = document.getElementById('hudLimit');
 const hudCollectibles = document.getElementById('hudCollectibles');
 const winText = document.getElementById('winText');
 const bestText = document.getElementById('bestText');
+const rankingList = document.getElementById('rankingList');
+const rankingSeed = document.getElementById('rankingSeed');
+const activeSeed = document.getElementById('activeSeed');
 
 const sensitivityInput = document.getElementById('sensitivity');
 const sensitivityValue = document.getElementById('sensitivityValue');
@@ -24,6 +30,7 @@ const volumeValue = document.getElementById('volumeValue');
 const invertYInput = document.getElementById('invertY');
 const touchControls = document.getElementById('touchControls');
 const lookPad = document.getElementById('lookPad');
+const seedInput = document.getElementById('seedInput');
 
 const scene = new THREE.Scene();
 scene.fog = new THREE.FogExp2(0x141d2e, 0.026);
@@ -48,7 +55,6 @@ scene.add(camera);
 
 const player = {
   pos: new THREE.Vector3(0, 1.6, 0),
-  vel: new THREE.Vector3(),
   yaw: 0,
   pitch: 0,
   moveSpeed: 4,
@@ -58,18 +64,22 @@ const keys = { w: false, a: false, s: false, d: false };
 const isTouchDevice = window.matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window;
 let gameState = 'menu';
 let currentLevelKey = 'easy';
+let currentSeed = '';
 let mazeGrid = [];
 let wallBoxes = [];
 let levelRoot = null;
 let exitZone = null;
 let startTime = 0;
 let pausedAt = 0;
-let elapsedWhenPaused = 0;
 let collectibleZones = [];
 let collectedCount = 0;
-const TOTAL_COLLECTIBLES = 10;
 
-const bestTimes = JSON.parse(localStorage.getItem('labernty-best-times') || '{}');
+const rankingsBySeed = JSON.parse(localStorage.getItem(RANKING_KEY) || '{}');
+
+let audioCtx = null;
+let musicGain = null;
+let musicNodes = [];
+let musicTimer = null;
 
 function showSection(id) {
   document.querySelectorAll('.menu-section').forEach((el) => el.classList.add('hidden'));
@@ -99,6 +109,82 @@ function setTouchControlsVisible(visible) {
   touchControls.setAttribute('aria-hidden', String(!show));
 }
 
+function normalizeSeed(seed) {
+  return (seed || '').trim().replace(/\s+/g, '-').slice(0, 24);
+}
+
+function createSeed() {
+  return Math.random().toString(36).slice(2, 10).toUpperCase();
+}
+
+function hashSeed(str) {
+  let h = 2166136261;
+  for (let i = 0; i < str.length; i++) {
+    h ^= str.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return h >>> 0;
+}
+
+function makeRng(seedText) {
+  let a = hashSeed(seedText) || 1;
+  return () => {
+    a += 0x6D2B79F5;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function keyForRanking(levelKey, seed) {
+  return `${levelKey}|${seed}`;
+}
+
+function getRanking(levelKey, seed) {
+  return rankingsBySeed[keyForRanking(levelKey, seed)] || [];
+}
+
+function getSeedBest(levelKey, seed) {
+  const ranking = getRanking(levelKey, seed);
+  return ranking.length ? ranking[0] : null;
+}
+
+function renderSeedHud() {
+  activeSeed.textContent = `Seed activa: ${currentSeed || normalizeSeed(seedInput.value) || '-'}`;
+}
+
+function renderRanking(levelKey = currentLevelKey, seed = currentSeed || normalizeSeed(seedInput.value)) {
+  const normalized = normalizeSeed(seed);
+  rankingSeed.textContent = normalized
+    ? `Seed: ${normalized} · Nivel: ${LEVELS[levelKey].label}`
+    : 'Define una seed y juega una partida para crear ranking.';
+
+  const ranking = normalized ? getRanking(levelKey, normalized) : [];
+  rankingList.innerHTML = '';
+  if (!ranking.length) {
+    const li = document.createElement('li');
+    li.textContent = 'Sin tiempos registrados todavía.';
+    rankingList.appendChild(li);
+    return;
+  }
+
+  ranking.slice(0, 8).forEach((time, index) => {
+    const li = document.createElement('li');
+    li.textContent = `#${index + 1} · ${formatTime(time)}`;
+    rankingList.appendChild(li);
+  });
+}
+
+function updateRanking(levelKey, seed, elapsed) {
+  const key = keyForRanking(levelKey, seed);
+  const current = rankingsBySeed[key] || [];
+  current.push(elapsed);
+  current.sort((a, b) => a - b);
+  rankingsBySeed[key] = current.slice(0, 8);
+  localStorage.setItem(RANKING_KEY, JSON.stringify(rankingsBySeed));
+}
+
 function clearLevel() {
   if (levelRoot) {
     scene.remove(levelRoot);
@@ -114,7 +200,7 @@ function clearLevel() {
   scene.add(levelRoot);
 }
 
-function generateMaze(size) {
+function generateMaze(size, rng) {
   const grid = Array.from({ length: size }, () => Array(size).fill(1));
   const visited = Array.from({ length: size }, () => Array(size).fill(false));
 
@@ -126,7 +212,12 @@ function generateMaze(size) {
       [-2, 0],
       [0, 2],
       [0, -2],
-    ].sort(() => Math.random() - 0.5);
+    ];
+
+    for (let i = dirs.length - 1; i > 0; i--) {
+      const j = Math.floor(rng() * (i + 1));
+      [dirs[i], dirs[j]] = [dirs[j], dirs[i]];
+    }
 
     for (const [dx, dy] of dirs) {
       const nx = x + dx;
@@ -144,8 +235,7 @@ function generateMaze(size) {
   return grid;
 }
 
-
-function placeCollectibles(cfg, cellSize, half) {
+function placeCollectibles(cfg, cellSize, half, rng) {
   const collectibleGeo = new THREE.IcosahedronGeometry(0.35, 0);
   const collectibleMat = new THREE.MeshStandardMaterial({
     color: 0xffdc5d,
@@ -166,7 +256,7 @@ function placeCollectibles(cfg, cellSize, half) {
   }
 
   for (let i = 0; i < TOTAL_COLLECTIBLES && candidates.length > 0; i++) {
-    const index = Math.floor(Math.random() * candidates.length);
+    const index = Math.floor(rng() * candidates.length);
     const cell = candidates.splice(index, 1)[0];
     const cx = cell.x * cellSize - half + cellSize / 2;
     const cz = cell.z * cellSize - half + cellSize / 2;
@@ -177,9 +267,10 @@ function placeCollectibles(cfg, cellSize, half) {
   }
 }
 
-function buildLevel(levelKey) {
+function buildLevel(levelKey, seed) {
   const cfg = LEVELS[levelKey];
-  mazeGrid = generateMaze(cfg.size);
+  const rng = makeRng(`${levelKey}:${seed}`);
+  mazeGrid = generateMaze(cfg.size, rng);
   clearLevel();
 
   const cellSize = 2;
@@ -201,7 +292,6 @@ function buildLevel(levelKey) {
         const wz = z * cellSize - half + cellSize / 2;
         const wall = new THREE.Mesh(wallGeo, wallMat);
         wall.position.set(wx, cfg.wallHeight / 2, wz);
-        wall.castShadow = true;
         levelRoot.add(wall);
 
         wallBoxes.push(new THREE.Box3().setFromCenterAndSize(
@@ -212,20 +302,69 @@ function buildLevel(levelKey) {
     }
   }
 
-  const exitMat = new THREE.MeshStandardMaterial({ color: 0x22ffaa, emissive: 0x116644, emissiveIntensity: 0.8 });
-  const exit = new THREE.Mesh(new THREE.CylinderGeometry(0.65, 0.65, 2, 20), exitMat);
+  const exit = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.65, 0.65, 2, 20),
+    new THREE.MeshStandardMaterial({ color: 0x22ffaa, emissive: 0x116644, emissiveIntensity: 0.8 })
+  );
   const ex = (cfg.size - 0.5) * cellSize - half;
   const ez = (cfg.size - 1.5) * cellSize - half;
   exit.position.set(ex, 1, ez);
   levelRoot.add(exit);
   exitZone = { center: new THREE.Vector3(ex, 1, ez), radius: 1.2 };
 
-  placeCollectibles(cfg, cellSize, half);
+  placeCollectibles(cfg, cellSize, half, rng);
 
   player.pos.set(-half + cellSize * 0.5, 1.6, -half + cellSize * 1.5);
   player.yaw = 0;
   player.pitch = 0;
   camera.position.copy(player.pos);
+}
+
+function ensureMusic() {
+  if (audioCtx) return;
+  audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  musicGain = audioCtx.createGain();
+  musicGain.gain.value = Number(volumeInput.value) * 0.35;
+  musicGain.connect(audioCtx.destination);
+}
+
+function stopMusic() {
+  if (musicTimer) {
+    clearTimeout(musicTimer);
+    musicTimer = null;
+  }
+  musicNodes.forEach((node) => {
+    try { node.stop(); } catch (_) { /* noop */ }
+    node.disconnect();
+  });
+  musicNodes = [];
+}
+
+function playMusicLoop() {
+  ensureMusic();
+  if (!audioCtx || gameState === 'menu') return;
+  audioCtx.resume();
+  stopMusic();
+
+  const melody = [261.63, 329.63, 392.0, 329.63, 293.66, 349.23, 440.0, 349.23];
+  const now = audioCtx.currentTime + 0.05;
+  melody.forEach((freq, i) => {
+    const t = now + i * 0.34;
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.type = i % 2 ? 'triangle' : 'sine';
+    osc.frequency.setValueAtTime(freq, t);
+    gain.gain.setValueAtTime(0.0001, t);
+    gain.gain.exponentialRampToValueAtTime(0.07, t + 0.03);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.31);
+    osc.connect(gain);
+    gain.connect(musicGain);
+    osc.start(t);
+    osc.stop(t + 0.34);
+    musicNodes.push(osc, gain);
+  });
+
+  musicTimer = setTimeout(playMusicLoop, 2700);
 }
 
 function setupUi() {
@@ -240,6 +379,10 @@ function setupUi() {
   document.getElementById('openSettings').addEventListener('click', () => showSection('settingsMenu'));
   document.getElementById('openStory').addEventListener('click', () => showSection('storyMenu'));
   document.getElementById('openCredits').addEventListener('click', () => showSection('creditsMenu'));
+  document.getElementById('openRanking').addEventListener('click', () => {
+    renderRanking();
+    showSection('rankingMenu');
+  });
 
   document.getElementById('resumeBtn').addEventListener('click', resumeGame);
   document.getElementById('quitBtn').addEventListener('click', quitToMenu);
@@ -249,28 +392,55 @@ function setupUi() {
   sensitivityInput.addEventListener('input', () => {
     sensitivityValue.textContent = sensitivityInput.value;
   });
+
   volumeInput.addEventListener('input', () => {
     volumeValue.textContent = volumeInput.value;
+    if (musicGain && audioCtx) {
+      musicGain.gain.setTargetAtTime(Number(volumeInput.value) * 0.35, audioCtx.currentTime, 0.05);
+    }
   });
+
+  document.getElementById('randomSeedBtn').addEventListener('click', () => {
+    seedInput.value = createSeed();
+    renderSeedHud();
+  });
+
+  document.getElementById('copySeedBtn').addEventListener('click', async () => {
+    const seed = normalizeSeed(seedInput.value) || currentSeed;
+    if (!seed) return;
+    try {
+      await navigator.clipboard.writeText(seed);
+    } catch (_) {
+      seedInput.select();
+      document.execCommand('copy');
+    }
+  });
+
+  seedInput.addEventListener('input', renderSeedHud);
 }
 
 function startGame(levelKey) {
   currentLevelKey = levelKey;
-  buildLevel(levelKey);
+  currentSeed = normalizeSeed(seedInput.value) || createSeed();
+  seedInput.value = currentSeed;
+  renderSeedHud();
+  buildLevel(levelKey, currentSeed);
   gameState = 'running';
   setOverlayVisible(false);
   hud.classList.remove('hidden');
   showSection('mainMenu');
   startTime = performance.now();
-  elapsedWhenPaused = 0;
   collectedCount = 0;
+
   const cfg = LEVELS[levelKey];
-  hudLevel.textContent = cfg.label;
+  hudLevel.textContent = `${cfg.label} · ${currentSeed}`;
   hudLimit.textContent = formatLimit(cfg.timeLimit);
-  hudBest.textContent = bestTimes[levelKey] ? formatTime(bestTimes[levelKey]) : '--:--.--';
+  const best = getSeedBest(levelKey, currentSeed);
+  hudBest.textContent = best ? formatTime(best) : '--:--.--';
   hudCollectibles.textContent = `${collectedCount}/${TOTAL_COLLECTIBLES}`;
   tryPointerLock();
   setTouchControlsVisible(true);
+  playMusicLoop();
 }
 
 function quitToMenu() {
@@ -280,30 +450,27 @@ function quitToMenu() {
   showSection('mainMenu');
   setTouchControlsVisible(false);
   document.exitPointerLock();
+  stopMusic();
 }
 
 function winGame(timeout = false) {
   gameState = 'win';
   document.exitPointerLock();
+  stopMusic();
   const elapsed = timeout ? LEVELS[currentLevelKey].timeLimit : (performance.now() - startTime) / 1000;
   const text = timeout
     ? `Te quedaste sin tiempo en ${formatTime(elapsed)} con ${collectedCount}/${TOTAL_COLLECTIBLES} reliquias.`
     : `Tiempo de escape: ${formatTime(elapsed)} (reliquias: ${collectedCount}/${TOTAL_COLLECTIBLES}).`;
 
-  if (!timeout) {
-    if (!bestTimes[currentLevelKey] || elapsed < bestTimes[currentLevelKey]) {
-      bestTimes[currentLevelKey] = elapsed;
-      localStorage.setItem('labernty-best-times', JSON.stringify(bestTimes));
-    }
-  }
+  if (!timeout) updateRanking(currentLevelKey, currentSeed, elapsed);
 
   winText.textContent = text;
-  bestText.textContent = `Mejor tiempo (${LEVELS[currentLevelKey].label}): ${
-    bestTimes[currentLevelKey] ? formatTime(bestTimes[currentLevelKey]) : '--:--.--'
-  }`;
-  hudBest.textContent = bestTimes[currentLevelKey] ? formatTime(bestTimes[currentLevelKey]) : '--:--.--';
+  const seedBest = getSeedBest(currentLevelKey, currentSeed);
+  bestText.textContent = `Mejor tiempo para ${LEVELS[currentLevelKey].label} · ${currentSeed}: ${seedBest ? formatTime(seedBest) : '--:--.--'}`;
+  hudBest.textContent = seedBest ? formatTime(seedBest) : '--:--.--';
   setOverlayVisible(true);
   setTouchControlsVisible(false);
+  renderRanking(currentLevelKey, currentSeed);
   showSection('winMenu');
 }
 
@@ -319,6 +486,7 @@ function resumeGame() {
   startTime += pauseDur;
   tryPointerLock();
   setTouchControlsVisible(true);
+  playMusicLoop();
 }
 
 function togglePause() {
@@ -329,6 +497,7 @@ function togglePause() {
     showSection('pauseMenu');
     setTouchControlsVisible(false);
     document.exitPointerLock();
+    stopMusic();
   } else if (gameState === 'paused') {
     resumeGame();
   }
@@ -389,7 +558,6 @@ canvas.addEventListener('click', () => {
   }
 });
 
-
 function setupTouchControls() {
   if (!isTouchDevice) return;
 
@@ -448,7 +616,6 @@ window.addEventListener('resize', () => {
   renderer.setSize(window.innerWidth, window.innerHeight);
 });
 
-
 function updateCollectibles() {
   if (gameState !== 'running') return;
   for (const collectible of collectibleZones) {
@@ -468,9 +635,7 @@ function updateHud() {
   const elapsed = (performance.now() - startTime) / 1000;
   hudTime.textContent = formatTime(elapsed);
   const limit = LEVELS[currentLevelKey].timeLimit;
-  if (elapsed >= limit) {
-    winGame(true);
-  }
+  if (elapsed >= limit) winGame(true);
 }
 
 const clock = new THREE.Clock();
@@ -489,6 +654,7 @@ function loop() {
 
 setupUi();
 setupTouchControls();
+renderSeedHud();
 showSection('mainMenu');
 setOverlayVisible(true);
 loop();

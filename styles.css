@@ -178,3 +178,36 @@ ul {
     display: none !important;
   }
 }
+
+.seed-field {
+  margin-top: 0.6rem;
+}
+
+.seed-row {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+#seedInput {
+  flex: 1;
+  min-width: 170px;
+  border-radius: 8px;
+  border: 1px solid #3a4c6b;
+  background: #0e1728;
+  color: #e6edf3;
+  padding: 0.62rem 0.7rem;
+}
+
+.seed-hint {
+  margin-top: -0.2rem;
+}
+
+.ranking-list {
+  list-style: decimal;
+  padding-left: 1.4rem;
+}
+
+.ranking-list li {
+  margin-bottom: 0.35rem;
+}
