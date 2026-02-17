@@ -25,7 +25,7 @@
           <button id="openStory">Historia</button>
           <button id="openCredits">Créditos</button>
         </div>
-        <p class="hint">WASD para mover · Mouse para mirar · ESC para pausar/reanudar</p>
+        <p class="hint">PC: WASD para mover · Mouse para mirar · ESC para pausar/reanudar. En celular usa los controles táctiles.</p>
       </section>
 
       <section id="settingsMenu" class="menu-section hidden">
@@ -100,6 +100,16 @@
     <div><strong>Tiempo:</strong> <span id="hudTime">00:00.00</span></div>
     <div><strong>Mejor:</strong> <span id="hudBest">--:--.--</span></div>
     <div><strong>Límite:</strong> <span id="hudLimit">--:--</span></div>
+  </div>
+
+  <div id="touchControls" class="touch-controls hidden" aria-hidden="true">
+    <div id="movePad" class="move-pad">
+      <button data-key="w" class="touch-btn up">▲</button>
+      <button data-key="a" class="touch-btn left">◀</button>
+      <button data-key="s" class="touch-btn down">▼</button>
+      <button data-key="d" class="touch-btn right">▶</button>
+    </div>
+    <div id="lookPad" class="look-pad" aria-label="Área para mirar"></div>
   </div>
 
   <script type="module" src="game.js"></script>

@@ -14,6 +14,7 @@ body {
   overflow: hidden;
   background: #07090f;
   color: #e6edf3;
+  touch-action: none;
 }
 
 #gameCanvas {
@@ -123,4 +124,51 @@ input[type="range"] {
 
 ul {
   margin-top: 0.6rem;
+}
+
+.touch-controls {
+  position: fixed;
+  inset: auto 0 14px 0;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  padding: 0 14px;
+  gap: 10px;
+  z-index: 6;
+}
+
+.move-pad {
+  width: 148px;
+  height: 148px;
+  position: relative;
+}
+
+.touch-btn {
+  position: absolute;
+  width: 46px;
+  height: 46px;
+  border-radius: 50%;
+  border: 1px solid #47648c;
+  background: rgba(120, 197, 255, 0.45);
+  color: #f4f8ff;
+  font-size: 1.1rem;
+}
+
+.touch-btn.up { top: 0; left: 51px; }
+.touch-btn.left { top: 51px; left: 0; }
+.touch-btn.right { top: 51px; left: 102px; }
+.touch-btn.down { top: 102px; left: 51px; }
+
+.look-pad {
+  width: min(44vw, 240px);
+  height: 148px;
+  border-radius: 14px;
+  border: 1px solid #365071;
+  background: rgba(16, 24, 39, 0.28);
+}
+
+@media (pointer: fine) {
+  .touch-controls {
+    display: none !important;
+  }
 }

@@ -21,6 +21,8 @@ const sensitivityValue = document.getElementById('sensitivityValue');
 const volumeInput = document.getElementById('volume');
 const volumeValue = document.getElementById('volumeValue');
 const invertYInput = document.getElementById('invertY');
+const touchControls = document.getElementById('touchControls');
+const lookPad = document.getElementById('lookPad');
 
 const scene = new THREE.Scene();
 scene.fog = new THREE.FogExp2(0x020205, 0.085);
@@ -46,6 +48,7 @@ const player = {
 };
 
 const keys = { w: false, a: false, s: false, d: false };
+const isTouchDevice = window.matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window;
 let gameState = 'menu';
 let currentLevelKey = 'easy';
 let mazeGrid = [];
@@ -87,6 +90,12 @@ function formatLimit(seconds) {
 
 function setOverlayVisible(visible) {
   overlay.classList.toggle('visible', visible);
+}
+
+function setTouchControlsVisible(visible) {
+  const show = isTouchDevice && visible;
+  touchControls.classList.toggle('hidden', !show);
+  touchControls.setAttribute('aria-hidden', String(!show));
 }
 
 function clearLevel() {
@@ -222,6 +231,7 @@ function startGame(levelKey) {
   hudLimit.textContent = formatLimit(cfg.timeLimit);
   hudBest.textContent = bestTimes[levelKey] ? formatTime(bestTimes[levelKey]) : '--:--.--';
   tryPointerLock();
+  setTouchControlsVisible(true);
 }
 
 function quitToMenu() {
@@ -229,6 +239,7 @@ function quitToMenu() {
   hud.classList.add('hidden');
   setOverlayVisible(true);
   showSection('mainMenu');
+  setTouchControlsVisible(false);
   document.exitPointerLock();
 }
 
@@ -253,12 +264,13 @@ function winGame(timeout = false) {
   }`;
   hudBest.textContent = bestTimes[currentLevelKey] ? formatTime(bestTimes[currentLevelKey]) : '--:--.--';
   setOverlayVisible(true);
+  setTouchControlsVisible(false);
   showSection('winMenu');
 }
 
 function tryPointerLock() {
   if (humCtx.state === 'suspended') humCtx.resume();
-  canvas.requestPointerLock();
+  if (!isTouchDevice) canvas.requestPointerLock();
 }
 
 function resumeGame() {
@@ -268,6 +280,7 @@ function resumeGame() {
   const pauseDur = performance.now() - pausedAt;
   startTime += pauseDur;
   tryPointerLock();
+  setTouchControlsVisible(true);
 }
 
 function togglePause() {
@@ -276,6 +289,7 @@ function togglePause() {
     pausedAt = performance.now();
     setOverlayVisible(true);
     showSection('pauseMenu');
+    setTouchControlsVisible(false);
     document.exitPointerLock();
   } else if (gameState === 'paused') {
     resumeGame();
@@ -337,6 +351,59 @@ canvas.addEventListener('click', () => {
   }
 });
 
+
+function setupTouchControls() {
+  if (!isTouchDevice) return;
+
+  const setKey = (key, pressed) => {
+    keys[key] = pressed;
+  };
+
+  document.querySelectorAll('.touch-btn').forEach((btn) => {
+    const key = btn.dataset.key;
+    const press = (e) => {
+      e.preventDefault();
+      setKey(key, true);
+    };
+    const release = (e) => {
+      e.preventDefault();
+      setKey(key, false);
+    };
+    btn.addEventListener('touchstart', press, { passive: false });
+    btn.addEventListener('touchend', release, { passive: false });
+    btn.addEventListener('touchcancel', release, { passive: false });
+  });
+
+  let lastTouch = null;
+  lookPad.addEventListener('touchstart', (e) => {
+    e.preventDefault();
+    const touch = e.changedTouches[0];
+    lastTouch = { x: touch.clientX, y: touch.clientY };
+  }, { passive: false });
+
+  lookPad.addEventListener('touchmove', (e) => {
+    if (gameState !== 'running' || !lastTouch) return;
+    e.preventDefault();
+    const touch = e.changedTouches[0];
+    const dx = touch.clientX - lastTouch.x;
+    const dy = touch.clientY - lastTouch.y;
+    lastTouch = { x: touch.clientX, y: touch.clientY };
+
+    const sens = Number(sensitivityInput.value) * 0.004;
+    player.yaw -= dx * sens;
+    const invert = invertYInput.checked ? -1 : 1;
+    player.pitch -= dy * sens * invert;
+    player.pitch = Math.max(-Math.PI / 2.1, Math.min(Math.PI / 2.1, player.pitch));
+  }, { passive: false });
+
+  const resetLook = (e) => {
+    e.preventDefault();
+    lastTouch = null;
+  };
+  lookPad.addEventListener('touchend', resetLook, { passive: false });
+  lookPad.addEventListener('touchcancel', resetLook, { passive: false });
+}
+
 window.addEventListener('resize', () => {
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
@@ -367,6 +434,7 @@ function loop() {
 }
 
 setupUi();
+setupTouchControls();
 showSection('mainMenu');
 setOverlayVisible(true);
 loop();
