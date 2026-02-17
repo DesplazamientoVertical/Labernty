@@ -91,6 +91,10 @@ button:hover {
   filter: brightness(1.1);
 }
 
+button.danger {
+  background: #ff9a7a;
+}
+
 .secondary button,
 button.secondary {
   background: #b6c2d4;
@@ -122,6 +126,7 @@ input[type="range"] {
   backdrop-filter: blur(2px);
   z-index: 5;
   line-height: 1.45;
+  max-width: min(92vw, 560px);
 }
 
 .hud.hidden {

@@ -20,6 +20,7 @@
           <button data-level="easy" class="start-btn">Jugar - Fácil</button>
           <button data-level="medium" class="start-btn">Jugar - Medio</button>
           <button data-level="hard" class="start-btn">Jugar - Difícil</button>
+          <button data-level="hardcore" class="start-btn danger">Jugar - Hardcore</button>
         </div>
         <label class="seed-field">
           Seed compartible
@@ -36,7 +37,7 @@
           <button id="openRanking">Ranking</button>
           <button id="openCredits">Créditos</button>
         </div>
-        <p class="hint">PC: WASD para mover · Mouse para mirar · ESC para pausar/reanudar. Junta las 10 reliquias antes de escapar. En celular usa los controles táctiles.</p>
+        <p class="hint">PC: WASD para mover · Shift para sprint (usa stamina) · Mouse para mirar · ESC para pausar/reanudar. Junta las reliquias antes de escapar. En celular usa los controles táctiles.</p>
       </section>
 
       <section id="settingsMenu" class="menu-section hidden">
@@ -54,6 +55,10 @@
         <label>
           Invertir eje Y
           <input id="invertY" type="checkbox" />
+        </label>
+        <label>
+          Activar modo fantasma por seed
+          <input id="ghostMode" type="checkbox" checked />
         </label>
         <div class="button-row secondary">
           <button class="backMain">Volver</button>
@@ -148,6 +153,8 @@
     <div><strong>Mejor:</strong> <span id="hudBest">--:--.--</span></div>
     <div><strong>Límite:</strong> <span id="hudLimit">--:--</span></div>
     <div><strong>Reliquias:</strong> <span id="hudCollectibles">0/10</span></div>
+    <div><strong>Stamina:</strong> <span id="hudStamina">100%</span></div>
+    <div><strong>Mutadores:</strong> <span id="hudMutators">-</span></div>
   </div>
 
   <div id="touchControls" class="touch-controls hidden" aria-hidden="true">
