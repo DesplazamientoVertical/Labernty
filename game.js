@@ -13,6 +13,7 @@ const hudLevel = document.getElementById('hudLevel');
 const hudTime = document.getElementById('hudTime');
 const hudBest = document.getElementById('hudBest');
 const hudLimit = document.getElementById('hudLimit');
+const hudCollectibles = document.getElementById('hudCollectibles');
 const winText = document.getElementById('winText');
 const bestText = document.getElementById('bestText');
 
@@ -64,23 +65,11 @@ let exitZone = null;
 let startTime = 0;
 let pausedAt = 0;
 let elapsedWhenPaused = 0;
+let collectibleZones = [];
+let collectedCount = 0;
+const TOTAL_COLLECTIBLES = 10;
 
 const bestTimes = JSON.parse(localStorage.getItem('labernty-best-times') || '{}');
-
-const humCtx = new (window.AudioContext || window.webkitAudioContext)();
-const humOsc = humCtx.createOscillator();
-const humGain = humCtx.createGain();
-humOsc.type = 'triangle';
-humOsc.frequency.value = 50;
-humGain.gain.value = 0;
-humOsc.connect(humGain).connect(humCtx.destination);
-humOsc.start();
-
-function setHumActive(active) {
-  const target = active ? Number(volumeInput.value) : 0;
-  humGain.gain.cancelScheduledValues(humCtx.currentTime);
-  humGain.gain.setTargetAtTime(target, humCtx.currentTime, 0.08);
-}
 
 function showSection(id) {
   document.querySelectorAll('.menu-section').forEach((el) => el.classList.add('hidden'));
@@ -119,6 +108,8 @@ function clearLevel() {
     });
   }
   wallBoxes = [];
+  collectibleZones = [];
+  collectedCount = 0;
   levelRoot = new THREE.Group();
   scene.add(levelRoot);
 }
@@ -151,6 +142,39 @@ function generateMaze(size) {
   grid[1][0] = 0;
   grid[size - 2][size - 1] = 0;
   return grid;
+}
+
+
+function placeCollectibles(cfg, cellSize, half) {
+  const collectibleGeo = new THREE.IcosahedronGeometry(0.35, 0);
+  const collectibleMat = new THREE.MeshStandardMaterial({
+    color: 0xffdc5d,
+    emissive: 0xaa7a12,
+    emissiveIntensity: 0.8,
+    roughness: 0.25,
+    metalness: 0.6,
+  });
+
+  const candidates = [];
+  for (let z = 0; z < cfg.size; z++) {
+    for (let x = 0; x < cfg.size; x++) {
+      if (mazeGrid[z][x] === 0) {
+        if ((x <= 2 && z <= 2) || (x >= cfg.size - 3 && z >= cfg.size - 3)) continue;
+        candidates.push({ x, z });
+      }
+    }
+  }
+
+  for (let i = 0; i < TOTAL_COLLECTIBLES && candidates.length > 0; i++) {
+    const index = Math.floor(Math.random() * candidates.length);
+    const cell = candidates.splice(index, 1)[0];
+    const cx = cell.x * cellSize - half + cellSize / 2;
+    const cz = cell.z * cellSize - half + cellSize / 2;
+    const collectible = new THREE.Mesh(collectibleGeo, collectibleMat.clone());
+    collectible.position.set(cx, 0.9, cz);
+    levelRoot.add(collectible);
+    collectibleZones.push({ mesh: collectible, center: collectible.position.clone(), radius: 0.85, collected: false });
+  }
 }
 
 function buildLevel(levelKey) {
@@ -196,6 +220,8 @@ function buildLevel(levelKey) {
   levelRoot.add(exit);
   exitZone = { center: new THREE.Vector3(ex, 1, ez), radius: 1.2 };
 
+  placeCollectibles(cfg, cellSize, half);
+
   player.pos.set(-half + cellSize * 0.5, 1.6, -half + cellSize * 1.5);
   player.yaw = 0;
   player.pitch = 0;
@@ -225,7 +251,6 @@ function setupUi() {
   });
   volumeInput.addEventListener('input', () => {
     volumeValue.textContent = volumeInput.value;
-    setHumActive(gameState === 'running');
   });
 }
 
@@ -238,12 +263,13 @@ function startGame(levelKey) {
   showSection('mainMenu');
   startTime = performance.now();
   elapsedWhenPaused = 0;
+  collectedCount = 0;
   const cfg = LEVELS[levelKey];
   hudLevel.textContent = cfg.label;
   hudLimit.textContent = formatLimit(cfg.timeLimit);
   hudBest.textContent = bestTimes[levelKey] ? formatTime(bestTimes[levelKey]) : '--:--.--';
+  hudCollectibles.textContent = `${collectedCount}/${TOTAL_COLLECTIBLES}`;
   tryPointerLock();
-  setHumActive(true);
   setTouchControlsVisible(true);
 }
 
@@ -253,7 +279,6 @@ function quitToMenu() {
   setOverlayVisible(true);
   showSection('mainMenu');
   setTouchControlsVisible(false);
-  setHumActive(false);
   document.exitPointerLock();
 }
 
@@ -262,8 +287,8 @@ function winGame(timeout = false) {
   document.exitPointerLock();
   const elapsed = timeout ? LEVELS[currentLevelKey].timeLimit : (performance.now() - startTime) / 1000;
   const text = timeout
-    ? `Te quedaste sin tiempo en ${formatTime(elapsed)}.`
-    : `Tiempo de escape: ${formatTime(elapsed)}.`;
+    ? `Te quedaste sin tiempo en ${formatTime(elapsed)} con ${collectedCount}/${TOTAL_COLLECTIBLES} reliquias.`
+    : `Tiempo de escape: ${formatTime(elapsed)} (reliquias: ${collectedCount}/${TOTAL_COLLECTIBLES}).`;
 
   if (!timeout) {
     if (!bestTimes[currentLevelKey] || elapsed < bestTimes[currentLevelKey]) {
@@ -279,12 +304,10 @@ function winGame(timeout = false) {
   hudBest.textContent = bestTimes[currentLevelKey] ? formatTime(bestTimes[currentLevelKey]) : '--:--.--';
   setOverlayVisible(true);
   setTouchControlsVisible(false);
-  setHumActive(false);
   showSection('winMenu');
 }
 
 function tryPointerLock() {
-  if (humCtx.state === 'suspended') humCtx.resume();
   if (!isTouchDevice) canvas.requestPointerLock();
 }
 
@@ -295,7 +318,6 @@ function resumeGame() {
   const pauseDur = performance.now() - pausedAt;
   startTime += pauseDur;
   tryPointerLock();
-  setHumActive(true);
   setTouchControlsVisible(true);
 }
 
@@ -306,7 +328,6 @@ function togglePause() {
     setOverlayVisible(true);
     showSection('pauseMenu');
     setTouchControlsVisible(false);
-    setHumActive(false);
     document.exitPointerLock();
   } else if (gameState === 'paused') {
     resumeGame();
@@ -427,6 +448,21 @@ window.addEventListener('resize', () => {
   renderer.setSize(window.innerWidth, window.innerHeight);
 });
 
+
+function updateCollectibles() {
+  if (gameState !== 'running') return;
+  for (const collectible of collectibleZones) {
+    if (collectible.collected) continue;
+    const dist = player.pos.distanceTo(collectible.center);
+    if (dist < collectible.radius) {
+      collectible.collected = true;
+      collectible.mesh.visible = false;
+      collectedCount += 1;
+      hudCollectibles.textContent = `${collectedCount}/${TOTAL_COLLECTIBLES}`;
+    }
+  }
+}
+
 function updateHud() {
   if (gameState !== 'running') return;
   const elapsed = (performance.now() - startTime) / 1000;
@@ -443,9 +479,10 @@ function loop() {
   const dt = Math.min(clock.getDelta(), 0.033);
   if (gameState === 'running') {
     movePlayer(dt);
+    updateCollectibles();
     updateHud();
     const dist = player.pos.distanceTo(exitZone.center);
-    if (dist < exitZone.radius) winGame(false);
+    if (dist < exitZone.radius && collectedCount >= TOTAL_COLLECTIBLES) winGame(false);
   }
   renderer.render(scene, camera);
 }
