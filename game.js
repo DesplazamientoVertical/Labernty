@@ -25,8 +25,8 @@ const touchControls = document.getElementById('touchControls');
 const lookPad = document.getElementById('lookPad');
 
 const scene = new THREE.Scene();
-scene.fog = new THREE.FogExp2(0x070b14, 0.04);
-scene.background = new THREE.Color(0x070b14);
+scene.fog = new THREE.FogExp2(0x141d2e, 0.026);
+scene.background = new THREE.Color(0x141d2e);
 
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -34,13 +34,13 @@ renderer.setSize(window.innerWidth, window.innerHeight);
 
 const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.05, 100);
 
-const ambient = new THREE.AmbientLight(0x284266, 0.25);
+const ambient = new THREE.AmbientLight(0x7fa8de, 0.55);
 scene.add(ambient);
-const moon = new THREE.DirectionalLight(0x8cabff, 0.4);
+const moon = new THREE.DirectionalLight(0xbfd3ff, 0.65);
 moon.position.set(4, 10, 2);
 scene.add(moon);
 
-const headLamp = new THREE.PointLight(0xa8d4ff, 0.95, 14, 1.6);
+const headLamp = new THREE.PointLight(0xd6ebff, 1.45, 22, 1.45);
 headLamp.position.set(0, -0.1, 0);
 camera.add(headLamp);
 scene.add(camera);
@@ -161,11 +161,11 @@ function buildLevel(levelKey) {
   const cellSize = 2;
   const half = (cfg.size * cellSize) / 2;
   const wallGeo = new THREE.BoxGeometry(cellSize, cfg.wallHeight, cellSize);
-  const wallMat = new THREE.MeshStandardMaterial({ color: 0x141822, roughness: 0.95, metalness: 0.1 });
+  const wallMat = new THREE.MeshStandardMaterial({ color: 0x2b3448, roughness: 0.9, metalness: 0.08 });
 
   const floor = new THREE.Mesh(
     new THREE.PlaneGeometry(cfg.size * cellSize, cfg.size * cellSize),
-    new THREE.MeshStandardMaterial({ color: 0x090d16, roughness: 1, metalness: 0.05 })
+    new THREE.MeshStandardMaterial({ color: 0x1c2536, roughness: 0.98, metalness: 0.04 })
   );
   floor.rotation.x = -Math.PI / 2;
   levelRoot.add(floor);
@@ -315,8 +315,8 @@ function togglePause() {
 
 function movePlayer(dt) {
   const dir = new THREE.Vector3();
-  const forward = new THREE.Vector3(Math.sin(player.yaw), 0, Math.cos(player.yaw));
-  const right = new THREE.Vector3(forward.z, 0, -forward.x);
+  const forward = new THREE.Vector3(-Math.sin(player.yaw), 0, -Math.cos(player.yaw));
+  const right = new THREE.Vector3(Math.cos(player.yaw), 0, -Math.sin(player.yaw));
   if (keys.w) dir.add(forward);
   if (keys.s) dir.sub(forward);
   if (keys.d) dir.add(right);
