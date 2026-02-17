@@ -25,7 +25,8 @@ const touchControls = document.getElementById('touchControls');
 const lookPad = document.getElementById('lookPad');
 
 const scene = new THREE.Scene();
-scene.fog = new THREE.FogExp2(0x020205, 0.085);
+scene.fog = new THREE.FogExp2(0x070b14, 0.04);
+scene.background = new THREE.Color(0x070b14);
 
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -38,6 +39,11 @@ scene.add(ambient);
 const moon = new THREE.DirectionalLight(0x8cabff, 0.4);
 moon.position.set(4, 10, 2);
 scene.add(moon);
+
+const headLamp = new THREE.PointLight(0xa8d4ff, 0.95, 14, 1.6);
+headLamp.position.set(0, -0.1, 0);
+camera.add(headLamp);
+scene.add(camera);
 
 const player = {
   pos: new THREE.Vector3(0, 1.6, 0),
@@ -64,11 +70,17 @@ const bestTimes = JSON.parse(localStorage.getItem('labernty-best-times') || '{}'
 const humCtx = new (window.AudioContext || window.webkitAudioContext)();
 const humOsc = humCtx.createOscillator();
 const humGain = humCtx.createGain();
-humOsc.type = 'sawtooth';
-humOsc.frequency.value = 46;
-humGain.gain.value = Number(volumeInput.value);
+humOsc.type = 'triangle';
+humOsc.frequency.value = 50;
+humGain.gain.value = 0;
 humOsc.connect(humGain).connect(humCtx.destination);
 humOsc.start();
+
+function setHumActive(active) {
+  const target = active ? Number(volumeInput.value) : 0;
+  humGain.gain.cancelScheduledValues(humCtx.currentTime);
+  humGain.gain.setTargetAtTime(target, humCtx.currentTime, 0.08);
+}
 
 function showSection(id) {
   document.querySelectorAll('.menu-section').forEach((el) => el.classList.add('hidden'));
@@ -213,7 +225,7 @@ function setupUi() {
   });
   volumeInput.addEventListener('input', () => {
     volumeValue.textContent = volumeInput.value;
-    humGain.gain.value = Number(volumeInput.value);
+    setHumActive(gameState === 'running');
   });
 }
 
@@ -231,6 +243,7 @@ function startGame(levelKey) {
   hudLimit.textContent = formatLimit(cfg.timeLimit);
   hudBest.textContent = bestTimes[levelKey] ? formatTime(bestTimes[levelKey]) : '--:--.--';
   tryPointerLock();
+  setHumActive(true);
   setTouchControlsVisible(true);
 }
 
@@ -240,6 +253,7 @@ function quitToMenu() {
   setOverlayVisible(true);
   showSection('mainMenu');
   setTouchControlsVisible(false);
+  setHumActive(false);
   document.exitPointerLock();
 }
 
@@ -265,6 +279,7 @@ function winGame(timeout = false) {
   hudBest.textContent = bestTimes[currentLevelKey] ? formatTime(bestTimes[currentLevelKey]) : '--:--.--';
   setOverlayVisible(true);
   setTouchControlsVisible(false);
+  setHumActive(false);
   showSection('winMenu');
 }
 
@@ -280,6 +295,7 @@ function resumeGame() {
   const pauseDur = performance.now() - pausedAt;
   startTime += pauseDur;
   tryPointerLock();
+  setHumActive(true);
   setTouchControlsVisible(true);
 }
 
@@ -290,6 +306,7 @@ function togglePause() {
     setOverlayVisible(true);
     showSection('pauseMenu');
     setTouchControlsVisible(false);
+    setHumActive(false);
     document.exitPointerLock();
   } else if (gameState === 'paused') {
     resumeGame();
