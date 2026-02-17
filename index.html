@@ -21,9 +21,19 @@
           <button data-level="medium" class="start-btn">Jugar - Medio</button>
           <button data-level="hard" class="start-btn">Jugar - Difícil</button>
         </div>
+        <label class="seed-field">
+          Seed compartible
+          <div class="seed-row">
+            <input id="seedInput" type="text" maxlength="24" placeholder="AUTO" />
+            <button id="randomSeedBtn" type="button">Aleatoria</button>
+            <button id="copySeedBtn" type="button">Copiar</button>
+          </div>
+        </label>
+        <p id="activeSeed" class="hint seed-hint">Seed activa: -</p>
         <div class="button-row secondary">
           <button id="openSettings">Configuración</button>
           <button id="openStory">Historia</button>
+          <button id="openRanking">Ranking</button>
           <button id="openCredits">Créditos</button>
         </div>
         <p class="hint">PC: WASD para mover · Mouse para mirar · ESC para pausar/reanudar. Junta las 10 reliquias antes de escapar. En celular usa los controles táctiles.</p>
@@ -70,6 +80,21 @@
           <li>Motor gráfico: Three.js</li>
           <li>Idea original: Usuario</li>
         </ul>
+        <h3>3 ideas más</h3>
+        <ul>
+          <li>Eventos aleatorios por seed (apagones, puertas bloqueadas y rutas secretas).</li>
+          <li>Modo contrarreloj con "fantasma" de tu mejor carrera para practicar rutas.</li>
+          <li>Sistema de perks temporales (brújula, sprint corto o visión nocturna).</li>
+        </ul>
+        <div class="button-row secondary">
+          <button class="backMain">Volver</button>
+        </div>
+      </section>
+
+      <section id="rankingMenu" class="menu-section hidden">
+        <h2>Ranking local por seed</h2>
+        <p id="rankingSeed"></p>
+        <ul id="rankingList" class="ranking-list"></ul>
         <div class="button-row secondary">
           <button class="backMain">Volver</button>
         </div>
