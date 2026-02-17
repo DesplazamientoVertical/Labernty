@@ -15,6 +15,7 @@
 
       <section id="mainMenu" class="menu-section">
         <h2>Menú principal</h2>
+        <p class="version">Versión del juego: v1.1.0</p>
         <div class="button-row">
           <button data-level="easy" class="start-btn">Jugar - Fácil</button>
           <button data-level="medium" class="start-btn">Jugar - Medio</button>
@@ -25,7 +26,7 @@
           <button id="openStory">Historia</button>
           <button id="openCredits">Créditos</button>
         </div>
-        <p class="hint">PC: WASD para mover · Mouse para mirar · ESC para pausar/reanudar. En celular usa los controles táctiles.</p>
+        <p class="hint">PC: WASD para mover · Mouse para mirar · ESC para pausar/reanudar. Junta las 10 reliquias antes de escapar. En celular usa los controles táctiles.</p>
       </section>
 
       <section id="settingsMenu" class="menu-section hidden">
@@ -54,7 +55,7 @@
         <p>
           Tras una tormenta eléctrica, despertaste en un complejo subterráneo abandonado.
           Solo una salida sigue activa. Cada minuto que pasa, el sistema cierra pasillos.
-          Recorre el laberinto oscuro y llega al portal final en el menor tiempo posible.
+          Recorre el laberinto oscuro, reúne 10 reliquias y llega al portal final en el menor tiempo posible.
         </p>
         <div class="button-row secondary">
           <button class="backMain">Volver</button>
@@ -100,6 +101,7 @@
     <div><strong>Tiempo:</strong> <span id="hudTime">00:00.00</span></div>
     <div><strong>Mejor:</strong> <span id="hudBest">--:--.--</span></div>
     <div><strong>Límite:</strong> <span id="hudLimit">--:--</span></div>
+    <div><strong>Reliquias:</strong> <span id="hudCollectibles">0/10</span></div>
   </div>
 
   <div id="touchControls" class="touch-controls hidden" aria-hidden="true">
