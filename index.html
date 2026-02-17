@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Labernty</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <canvas id="gameCanvas"></canvas>
+
+  <div id="overlay" class="overlay visible">
+    <div class="panel">
+      <h1>Labernty</h1>
+
+      <section id="mainMenu" class="menu-section">
+        <h2>Menú principal</h2>
+        <div class="button-row">
+          <button data-level="easy" class="start-btn">Jugar - Fácil</button>
+          <button data-level="medium" class="start-btn">Jugar - Medio</button>
+          <button data-level="hard" class="start-btn">Jugar - Difícil</button>
+        </div>
+        <div class="button-row secondary">
+          <button id="openSettings">Configuración</button>
+          <button id="openStory">Historia</button>
+          <button id="openCredits">Créditos</button>
+        </div>
+        <p class="hint">WASD para mover · Mouse para mirar · ESC para pausar/reanudar</p>
+      </section>
+
+      <section id="settingsMenu" class="menu-section hidden">
+        <h2>Configuración</h2>
+        <label>
+          Sensibilidad del mouse
+          <input id="sensitivity" type="range" min="0.5" max="3" value="1.2" step="0.1" />
+          <span id="sensitivityValue">1.2</span>
+        </label>
+        <label>
+          Volumen ambiente
+          <input id="volume" type="range" min="0" max="1" value="0.15" step="0.01" />
+          <span id="volumeValue">0.15</span>
+        </label>
+        <label>
+          Invertir eje Y
+          <input id="invertY" type="checkbox" />
+        </label>
+        <div class="button-row secondary">
+          <button class="backMain">Volver</button>
+        </div>
+      </section>
+
+      <section id="storyMenu" class="menu-section hidden">
+        <h2>Historia</h2>
+        <p>
+          Tras una tormenta eléctrica, despertaste en un complejo subterráneo abandonado.
+          Solo una salida sigue activa. Cada minuto que pasa, el sistema cierra pasillos.
+          Recorre el laberinto oscuro y llega al portal final en el menor tiempo posible.
+        </p>
+        <div class="button-row secondary">
+          <button class="backMain">Volver</button>
+        </div>
+      </section>
+
+      <section id="creditsMenu" class="menu-section hidden">
+        <h2>Créditos</h2>
+        <p><strong>Labernty</strong> fue creado como prototipo de escape en primera persona.</p>
+        <ul>
+          <li>Diseño y programación: Codex</li>
+          <li>Motor gráfico: Three.js</li>
+          <li>Idea original: Usuario</li>
+        </ul>
+        <div class="button-row secondary">
+          <button class="backMain">Volver</button>
+        </div>
+      </section>
+
+      <section id="pauseMenu" class="menu-section hidden">
+        <h2>Pausa</h2>
+        <p>El juego está pausado. Presiona ESC para continuar.</p>
+        <div class="button-row secondary">
+          <button id="resumeBtn">Reanudar</button>
+          <button id="quitBtn">Salir al menú</button>
+        </div>
+      </section>
+
+      <section id="winMenu" class="menu-section hidden">
+        <h2>¡Escapaste!</h2>
+        <p id="winText"></p>
+        <p id="bestText"></p>
+        <div class="button-row secondary">
+          <button id="playAgainBtn">Jugar de nuevo</button>
+          <button id="winMainBtn">Menú principal</button>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <div id="hud" class="hud hidden">
+    <div><strong>Nivel:</strong> <span id="hudLevel">-</span></div>
+    <div><strong>Tiempo:</strong> <span id="hudTime">00:00.00</span></div>
+    <div><strong>Mejor:</strong> <span id="hudBest">--:--.--</span></div>
+    <div><strong>Límite:</strong> <span id="hudLimit">--:--</span></div>
+  </div>
+
+  <script type="module" src="game.js"></script>
+</body>
+</html>
