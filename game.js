@@ -4,10 +4,35 @@ const LEVELS = {
   easy: { label: 'Fácil', size: 11, timeLimit: 300, wallHeight: 2.2 },
   medium: { label: 'Medio', size: 17, timeLimit: 210, wallHeight: 2.4 },
   hard: { label: 'Difícil', size: 23, timeLimit: 150, wallHeight: 2.6 },
+  hardcore: { label: 'Hardcore', size: 27, timeLimit: 95, wallHeight: 2.85, hardcore: true },
 };
 
-const TOTAL_COLLECTIBLES = 10;
+const BASE_COLLECTIBLES = 10;
 const RANKING_KEY = 'labernty-seed-rankings';
+const GHOST_KEY = 'labernty-seed-ghosts';
+
+const SEED_MUTATORS = [
+  { label: 'Pasos ligeros', apply: (s) => { s.speedMul *= 1.1; } },
+  { label: 'Niebla espesa', apply: (s) => { s.fogDensity *= 1.25; } },
+  { label: 'Portal inestable', apply: (s) => { s.timeLimit += 12; } },
+  { label: 'Cargador extra', apply: (s) => { s.staminaDrain *= 0.82; } },
+  { label: 'Calma total', apply: (s) => { s.musicMul *= 0.5; } },
+  { label: 'Pulso rápido', apply: (s) => { s.staminaRegen *= 1.25; } },
+  { label: 'Reliquia adicional', apply: (s) => { s.collectibles += 1; } },
+  { label: 'Reliquia menos', apply: (s) => { s.collectibles = Math.max(6, s.collectibles - 1); } },
+  { label: 'Muros altos', apply: (s) => { s.wallHeight += 0.25; } },
+  { label: 'Muros bajos', apply: (s) => { s.wallHeight = Math.max(1.8, s.wallHeight - 0.2); } },
+  { label: 'Lámpara potente', apply: (s) => { s.lampIntensity *= 1.2; s.lampRange *= 1.15; } },
+  { label: 'Oscuridad extrema', apply: (s) => { s.lampIntensity *= 0.82; s.fogDensity *= 1.18; } },
+  { label: 'Contrarreloj', apply: (s) => { s.timeLimit -= 14; } },
+  { label: 'Ruta abierta', apply: (s) => { s.speedMul *= 1.07; s.staminaDrain *= 0.9; } },
+  { label: 'Pulso tenso', apply: (s) => { s.speedMul *= 0.94; s.staminaDrain *= 1.2; } },
+  { label: 'Reactor frío', apply: (s) => { s.musicMul *= 0.75; s.sfxMul *= 1.2; } },
+  { label: 'Bruma azul', apply: (s) => { s.fogDensity *= 1.12; s.lampRange *= 0.92; } },
+  { label: 'Vértigo', apply: (s) => { s.lookSensitivity *= 1.12; } },
+  { label: 'Respiración zen', apply: (s) => { s.staminaRegen *= 1.35; s.speedMul *= 0.97; } },
+  { label: 'Modo raid', apply: (s) => { s.collectibles += 2; s.timeLimit += 8; } },
+];
 
 const canvas = document.getElementById('gameCanvas');
 const overlay = document.getElementById('overlay');
@@ -17,6 +42,8 @@ const hudTime = document.getElementById('hudTime');
 const hudBest = document.getElementById('hudBest');
 const hudLimit = document.getElementById('hudLimit');
 const hudCollectibles = document.getElementById('hudCollectibles');
+const hudStamina = document.getElementById('hudStamina');
+const hudMutators = document.getElementById('hudMutators');
 const winText = document.getElementById('winText');
 const bestText = document.getElementById('bestText');
 const rankingList = document.getElementById('rankingList');
@@ -28,6 +55,7 @@ const sensitivityValue = document.getElementById('sensitivityValue');
 const volumeInput = document.getElementById('volume');
 const volumeValue = document.getElementById('volumeValue');
 const invertYInput = document.getElementById('invertY');
+const ghostModeInput = document.getElementById('ghostMode');
 const touchControls = document.getElementById('touchControls');
 const lookPad = document.getElementById('lookPad');
 const seedInput = document.getElementById('seedInput');
@@ -58,9 +86,11 @@ const player = {
   yaw: 0,
   pitch: 0,
   moveSpeed: 4,
+  stamina: 100,
+  sprinting: false,
 };
 
-const keys = { w: false, a: false, s: false, d: false };
+const keys = { w: false, a: false, s: false, d: false, shift: false };
 const isTouchDevice = window.matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window;
 let gameState = 'menu';
 let currentLevelKey = 'easy';
@@ -73,16 +103,28 @@ let startTime = 0;
 let pausedAt = 0;
 let collectibleZones = [];
 let collectedCount = 0;
+let currentGoal = BASE_COLLECTIBLES;
+let currentTimeLimit = LEVELS.easy.timeLimit;
+let runModifiers = [];
+let runCfg = null;
+
+let ghostMesh = null;
+let ghostRoute = null;
+let ghostRecord = [];
+let ghostRecordStep = 0;
+let ghostClock = 0;
 
 const rankingsBySeed = JSON.parse(localStorage.getItem(RANKING_KEY) || '{}');
+const ghostsBySeed = JSON.parse(localStorage.getItem(GHOST_KEY) || '{}');
 
 let audioCtx = null;
 let musicGain = null;
+let sfxGain = null;
 let musicNodes = [];
 let musicTimer = null;
 
 function getMasterVolume() {
-  return Number(volumeInput.value) * 0.6;
+  return Number(volumeInput.value) * 0.25;
 }
 
 function showSection(id) {
@@ -154,6 +196,59 @@ function getSeedBest(levelKey, seed) {
   return ranking.length ? ranking[0] : null;
 }
 
+function keyForGhost(levelKey, seed) {
+  return `${levelKey}|${seed}`;
+}
+
+function updateGhostRoute(levelKey, seed, elapsed) {
+  const key = keyForGhost(levelKey, seed);
+  const existing = ghostsBySeed[key];
+  if (!ghostRecord.length) return;
+  if (existing && existing.elapsed <= elapsed) return;
+  ghostsBySeed[key] = { elapsed, path: ghostRecord.slice(0) };
+  localStorage.setItem(GHOST_KEY, JSON.stringify(ghostsBySeed));
+}
+
+function getRunConfig(levelKey, seed) {
+  const base = LEVELS[levelKey];
+  const rng = makeRng(`${seed}:${levelKey}:mods`);
+  const state = {
+    speedMul: 1,
+    fogDensity: 0.026,
+    timeLimit: base.timeLimit,
+    collectibles: BASE_COLLECTIBLES,
+    wallHeight: base.wallHeight,
+    lampIntensity: 1.45,
+    lampRange: 22,
+    staminaDrain: 1,
+    staminaRegen: 1,
+    musicMul: 1,
+    sfxMul: 1,
+    lookSensitivity: 1,
+  };
+
+  const available = SEED_MUTATORS.map((m) => ({ ...m }));
+  const selected = [];
+  for (let i = 0; i < 4 && available.length; i++) {
+    const idx = Math.floor(rng() * available.length);
+    selected.push(available.splice(idx, 1)[0]);
+  }
+
+  selected.forEach((mod) => mod.apply(state));
+
+  if (base.hardcore) {
+    state.collectibles += 2;
+    state.timeLimit -= 12;
+    state.staminaDrain *= 1.35;
+    state.staminaRegen *= 0.75;
+    selected.push({ label: 'Hardcore: sin colisiones (muerte súbita)' });
+  }
+
+  state.timeLimit = Math.max(60, Math.round(state.timeLimit));
+  state.collectibles = Math.min(18, Math.max(6, state.collectibles));
+  return { base, state, selectedLabels: selected.map((m) => m.label) };
+}
+
 function renderSeedHud() {
   activeSeed.textContent = `Seed activa: ${currentSeed || normalizeSeed(seedInput.value) || '-'}`;
 }
@@ -197,6 +292,16 @@ function clearLevel() {
       if (obj.material) obj.material.dispose();
     });
   }
+  if (ghostMesh) {
+    scene.remove(ghostMesh);
+    ghostMesh.geometry.dispose();
+    ghostMesh.material.dispose();
+  }
+  ghostMesh = null;
+  ghostRoute = null;
+  ghostRecord = [];
+  ghostRecordStep = 0;
+  ghostClock = 0;
   wallBoxes = [];
   collectibleZones = [];
   collectedCount = 0;
@@ -211,12 +316,7 @@ function generateMaze(size, rng) {
   function carve(x, y) {
     visited[y][x] = true;
     grid[y][x] = 0;
-    const dirs = [
-      [2, 0],
-      [-2, 0],
-      [0, 2],
-      [0, -2],
-    ];
+    const dirs = [[2, 0], [-2, 0], [0, 2], [0, -2]];
 
     for (let i = dirs.length - 1; i > 0; i--) {
       const j = Math.floor(rng() * (i + 1));
@@ -259,7 +359,7 @@ function placeCollectibles(cfg, cellSize, half, rng) {
     }
   }
 
-  for (let i = 0; i < TOTAL_COLLECTIBLES && candidates.length > 0; i++) {
+  for (let i = 0; i < currentGoal && candidates.length > 0; i++) {
     const index = Math.floor(rng() * candidates.length);
     const cell = candidates.splice(index, 1)[0];
     const cx = cell.x * cellSize - half + cellSize / 2;
@@ -271,16 +371,40 @@ function placeCollectibles(cfg, cellSize, half, rng) {
   }
 }
 
+function loadGhost(levelKey, seed) {
+  if (!ghostModeInput.checked) return;
+  const data = ghostsBySeed[keyForGhost(levelKey, seed)];
+  if (!data || !Array.isArray(data.path) || data.path.length < 5) return;
+  ghostRoute = data.path;
+  ghostMesh = new THREE.Mesh(
+    new THREE.SphereGeometry(0.26, 12, 10),
+    new THREE.MeshStandardMaterial({ color: 0x7ff8ff, transparent: true, opacity: 0.45, emissive: 0x2c8ba5 })
+  );
+  ghostMesh.position.set(ghostRoute[0].x, 1, ghostRoute[0].z);
+  levelRoot.add(ghostMesh);
+}
+
 function buildLevel(levelKey, seed) {
-  const cfg = LEVELS[levelKey];
+  runCfg = getRunConfig(levelKey, seed);
+  currentGoal = runCfg.state.collectibles;
+  currentTimeLimit = runCfg.state.timeLimit;
+  runModifiers = runCfg.selectedLabels;
+
+  const cfg = runCfg.base;
   const rng = makeRng(`${levelKey}:${seed}`);
   mazeGrid = generateMaze(cfg.size, rng);
   clearLevel();
 
   const cellSize = 2;
   const half = (cfg.size * cellSize) / 2;
-  const wallGeo = new THREE.BoxGeometry(cellSize, cfg.wallHeight, cellSize);
+  const wallGeo = new THREE.BoxGeometry(cellSize, runCfg.state.wallHeight, cellSize);
   const wallMat = new THREE.MeshStandardMaterial({ color: 0x2b3448, roughness: 0.9, metalness: 0.08 });
+
+  scene.fog.density = runCfg.state.fogDensity;
+  headLamp.intensity = runCfg.state.lampIntensity;
+  headLamp.distance = runCfg.state.lampRange;
+  player.moveSpeed = 4 * runCfg.state.speedMul;
+  player.stamina = 100;
 
   const floor = new THREE.Mesh(
     new THREE.PlaneGeometry(cfg.size * cellSize, cfg.size * cellSize),
@@ -295,12 +419,12 @@ function buildLevel(levelKey, seed) {
         const wx = x * cellSize - half + cellSize / 2;
         const wz = z * cellSize - half + cellSize / 2;
         const wall = new THREE.Mesh(wallGeo, wallMat);
-        wall.position.set(wx, cfg.wallHeight / 2, wz);
+        wall.position.set(wx, runCfg.state.wallHeight / 2, wz);
         levelRoot.add(wall);
 
         wallBoxes.push(new THREE.Box3().setFromCenterAndSize(
-          new THREE.Vector3(wx, cfg.wallHeight / 2, wz),
-          new THREE.Vector3(cellSize, cfg.wallHeight, cellSize)
+          new THREE.Vector3(wx, runCfg.state.wallHeight / 2, wz),
+          new THREE.Vector3(cellSize, runCfg.state.wallHeight, cellSize)
         ));
       }
     }
@@ -317,6 +441,7 @@ function buildLevel(levelKey, seed) {
   exitZone = { center: new THREE.Vector3(ex, 1, ez), radius: 1.2 };
 
   placeCollectibles(cfg, cellSize, half, rng);
+  loadGhost(levelKey, seed);
 
   player.pos.set(-half + cellSize * 0.5, 1.6, -half + cellSize * 1.5);
   player.yaw = 0;
@@ -328,8 +453,11 @@ function ensureMusic() {
   if (audioCtx) return;
   audioCtx = new (window.AudioContext || window.webkitAudioContext)();
   musicGain = audioCtx.createGain();
-  musicGain.gain.value = getMasterVolume();
+  sfxGain = audioCtx.createGain();
+  musicGain.gain.value = getMasterVolume() * 0.55;
+  sfxGain.gain.value = getMasterVolume() * 1.1;
   musicGain.connect(audioCtx.destination);
+  sfxGain.connect(audioCtx.destination);
 }
 
 function stopMusic() {
@@ -350,12 +478,7 @@ function playMusicLoop() {
   audioCtx.resume();
   stopMusic();
 
-  const progression = [
-    [130.81, 196.0, 261.63],
-    [146.83, 220.0, 293.66],
-    [174.61, 261.63, 329.63],
-    [196.0, 293.66, 392.0],
-  ];
+  const progression = [[130.81, 196.0, 261.63], [146.83, 220.0, 293.66], [174.61, 261.63, 329.63], [196.0, 293.66, 392.0]];
   const lead = [523.25, 587.33, 659.25, 587.33, 698.46, 659.25, 587.33, 523.25];
   const now = audioCtx.currentTime + 0.05;
 
@@ -367,7 +490,7 @@ function playMusicLoop() {
       osc.type = 'triangle';
       osc.frequency.setValueAtTime(freq, t);
       gain.gain.setValueAtTime(0.0001, t);
-      gain.gain.exponentialRampToValueAtTime(0.028, t + 0.1);
+      gain.gain.exponentialRampToValueAtTime(0.016, t + 0.1);
       gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.7);
       osc.connect(gain);
       gain.connect(musicGain);
@@ -384,7 +507,7 @@ function playMusicLoop() {
     osc.type = i % 2 ? 'square' : 'sine';
     osc.frequency.setValueAtTime(freq, t);
     gain.gain.setValueAtTime(0.0001, t);
-    gain.gain.exponentialRampToValueAtTime(0.04, t + 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.022, t + 0.02);
     gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.33);
     osc.connect(gain);
     gain.connect(musicGain);
@@ -398,7 +521,7 @@ function playMusicLoop() {
 
 function playSfx(type) {
   ensureMusic();
-  if (!audioCtx || !musicGain) return;
+  if (!audioCtx || !sfxGain) return;
   audioCtx.resume();
 
   const now = audioCtx.currentTime + 0.01;
@@ -410,7 +533,7 @@ function playSfx(type) {
     osc.frequency.setValueAtTime(620, now);
     osc.frequency.exponentialRampToValueAtTime(880, now + 0.12);
     gain.gain.setValueAtTime(0.0001, now);
-    gain.gain.exponentialRampToValueAtTime(0.09, now + 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.12, now + 0.02);
     gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.16);
     osc.stop(now + 0.18);
   } else {
@@ -418,13 +541,13 @@ function playSfx(type) {
     osc.frequency.setValueAtTime(300, now);
     osc.frequency.exponentialRampToValueAtTime(520, now + 0.2);
     gain.gain.setValueAtTime(0.0001, now);
-    gain.gain.exponentialRampToValueAtTime(0.08, now + 0.05);
+    gain.gain.exponentialRampToValueAtTime(0.1, now + 0.05);
     gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.32);
     osc.stop(now + 0.34);
   }
 
   osc.connect(gain);
-  gain.connect(musicGain);
+  gain.connect(sfxGain);
   osc.start(now);
 }
 
@@ -456,8 +579,9 @@ function setupUi() {
 
   volumeInput.addEventListener('input', () => {
     volumeValue.textContent = volumeInput.value;
-    if (musicGain && audioCtx) {
-      musicGain.gain.setTargetAtTime(getMasterVolume(), audioCtx.currentTime, 0.05);
+    if (musicGain && audioCtx && sfxGain) {
+      musicGain.gain.setTargetAtTime(getMasterVolume() * 0.55 * (runCfg?.state?.musicMul || 1), audioCtx.currentTime, 0.05);
+      sfxGain.gain.setTargetAtTime(getMasterVolume() * 1.1 * (runCfg?.state?.sfxMul || 1), audioCtx.currentTime, 0.05);
     }
   });
 
@@ -486,6 +610,12 @@ function startGame(levelKey) {
   seedInput.value = currentSeed;
   renderSeedHud();
   buildLevel(levelKey, currentSeed);
+
+  if (musicGain && sfxGain && audioCtx) {
+    musicGain.gain.setTargetAtTime(getMasterVolume() * 0.55 * runCfg.state.musicMul, audioCtx.currentTime, 0.05);
+    sfxGain.gain.setTargetAtTime(getMasterVolume() * 1.1 * runCfg.state.sfxMul, audioCtx.currentTime, 0.05);
+  }
+
   gameState = 'running';
   setOverlayVisible(false);
   hud.classList.remove('hidden');
@@ -495,10 +625,12 @@ function startGame(levelKey) {
 
   const cfg = LEVELS[levelKey];
   hudLevel.textContent = `${cfg.label} · ${currentSeed}`;
-  hudLimit.textContent = formatLimit(cfg.timeLimit);
+  hudLimit.textContent = formatLimit(currentTimeLimit);
   const best = getSeedBest(levelKey, currentSeed);
   hudBest.textContent = best ? formatTime(best) : '--:--.--';
-  hudCollectibles.textContent = `${collectedCount}/${TOTAL_COLLECTIBLES}`;
+  hudCollectibles.textContent = `${collectedCount}/${currentGoal}`;
+  hudStamina.textContent = '100%';
+  hudMutators.textContent = runModifiers.slice(0, 3).join(' · ');
   tryPointerLock();
   setTouchControlsVisible(true);
   playMusicLoop();
@@ -514,16 +646,19 @@ function quitToMenu() {
   stopMusic();
 }
 
-function winGame(timeout = false) {
+function winGame(timeout = false, reason = '') {
   gameState = 'win';
   document.exitPointerLock();
   stopMusic();
-  const elapsed = timeout ? LEVELS[currentLevelKey].timeLimit : (performance.now() - startTime) / 1000;
-  const text = timeout
-    ? `Te quedaste sin tiempo en ${formatTime(elapsed)} con ${collectedCount}/${TOTAL_COLLECTIBLES} reliquias.`
-    : `Tiempo de escape: ${formatTime(elapsed)} (reliquias: ${collectedCount}/${TOTAL_COLLECTIBLES}).`;
+  const elapsed = timeout ? currentTimeLimit : (performance.now() - startTime) / 1000;
+  const text = reason || (timeout
+    ? `Te quedaste sin tiempo en ${formatTime(elapsed)} con ${collectedCount}/${currentGoal} reliquias.`
+    : `Tiempo de escape: ${formatTime(elapsed)} (reliquias: ${collectedCount}/${currentGoal}).`);
 
-  if (!timeout) updateRanking(currentLevelKey, currentSeed, elapsed);
+  if (!timeout && !reason) {
+    updateRanking(currentLevelKey, currentSeed, elapsed);
+    updateGhostRoute(currentLevelKey, currentSeed, elapsed);
+  }
 
   winText.textContent = text;
   const seedBest = getSeedBest(currentLevelKey, currentSeed);
@@ -551,6 +686,7 @@ function resumeGame() {
 }
 
 function togglePause() {
+  if (currentLevelKey === 'hardcore') return;
   if (gameState === 'running') {
     gameState = 'paused';
     pausedAt = performance.now();
@@ -564,7 +700,21 @@ function togglePause() {
   }
 }
 
+function updateStamina(dt) {
+  const sprinting = keys.shift && (keys.w || keys.a || keys.s || keys.d) && player.stamina > 1;
+  player.sprinting = sprinting;
+  const drain = 28 * runCfg.state.staminaDrain;
+  const regen = 18 * runCfg.state.staminaRegen;
+  if (sprinting) {
+    player.stamina = Math.max(0, player.stamina - drain * dt);
+  } else {
+    player.stamina = Math.min(100, player.stamina + regen * dt);
+  }
+  hudStamina.textContent = `${Math.round(player.stamina)}%`;
+}
+
 function movePlayer(dt) {
+  updateStamina(dt);
   const dir = new THREE.Vector3();
   const forward = new THREE.Vector3(-Math.sin(player.yaw), 0, -Math.cos(player.yaw));
   const right = new THREE.Vector3(Math.cos(player.yaw), 0, -Math.sin(player.yaw));
@@ -574,17 +724,19 @@ function movePlayer(dt) {
   if (keys.a) dir.sub(right);
   if (dir.lengthSq() > 0) dir.normalize();
 
-  const step = dir.multiplyScalar(player.moveSpeed * dt);
+  const sprintMul = player.sprinting ? 1.68 : 1;
+  const step = dir.multiplyScalar(player.moveSpeed * sprintMul * dt);
   const next = player.pos.clone().add(step);
 
   const radius = 0.28;
-  const body = new THREE.Box3(
-    new THREE.Vector3(next.x - radius, 0, next.z - radius),
-    new THREE.Vector3(next.x + radius, 1.8, next.z + radius)
-  );
+  const body = new THREE.Box3(new THREE.Vector3(next.x - radius, 0, next.z - radius), new THREE.Vector3(next.x + radius, 1.8, next.z + radius));
 
   const collision = wallBoxes.some((b) => body.intersectsBox(b));
-  if (!collision) player.pos.copy(next);
+  if (!collision) {
+    player.pos.copy(next);
+  } else if (LEVELS[currentLevelKey].hardcore) {
+    winGame(true, 'Modo hardcore: chocaste contra un muro y perdiste la run.');
+  }
 
   camera.position.copy(player.pos);
   camera.rotation.set(player.pitch, player.yaw, 0, 'YXZ');
@@ -592,7 +744,7 @@ function movePlayer(dt) {
 
 document.addEventListener('mousemove', (e) => {
   if (document.pointerLockElement !== canvas || gameState !== 'running') return;
-  const sens = Number(sensitivityInput.value) * 0.0022;
+  const sens = Number(sensitivityInput.value) * 0.0022 * (runCfg?.state.lookSensitivity || 1);
   player.yaw -= e.movementX * sens;
   const invert = invertYInput.checked ? -1 : 1;
   player.pitch -= e.movementY * sens * invert;
@@ -656,7 +808,7 @@ function setupTouchControls() {
     const dy = touch.clientY - lastTouch.y;
     lastTouch = { x: touch.clientX, y: touch.clientY };
 
-    const sens = Number(sensitivityInput.value) * 0.004;
+    const sens = Number(sensitivityInput.value) * 0.004 * (runCfg?.state.lookSensitivity || 1);
     player.yaw -= dx * sens;
     const invert = invertYInput.checked ? -1 : 1;
     player.pitch -= dy * sens * invert;
@@ -686,17 +838,37 @@ function updateCollectibles() {
       collectible.collected = true;
       collectible.mesh.visible = false;
       collectedCount += 1;
-      hudCollectibles.textContent = `${collectedCount}/${TOTAL_COLLECTIBLES}`;
+      hudCollectibles.textContent = `${collectedCount}/${currentGoal}`;
       playSfx('collect');
     }
   }
+}
+
+function updateGhost(dt, elapsed) {
+  if (!ghostMesh || !ghostRoute) return;
+  ghostClock += dt;
+  while (ghostRecordStep < ghostRoute.length - 1 && ghostRoute[ghostRecordStep + 1].t <= elapsed) {
+    ghostRecordStep += 1;
+  }
+  const point = ghostRoute[ghostRecordStep];
+  if (point) {
+    ghostMesh.position.set(point.x, 1, point.z);
+  }
+}
+
+function recordGhost(elapsed) {
+  if (!ghostModeInput.checked || gameState !== 'running') return;
+  if (elapsed - ghostClock < 0.11 && ghostRecord.length) return;
+  ghostClock = elapsed;
+  ghostRecord.push({ t: Number(elapsed.toFixed(2)), x: Number(player.pos.x.toFixed(3)), z: Number(player.pos.z.toFixed(3)) });
 }
 
 function updateHud() {
   if (gameState !== 'running') return;
   const elapsed = (performance.now() - startTime) / 1000;
   hudTime.textContent = formatTime(elapsed);
-  const limit = LEVELS[currentLevelKey].timeLimit;
+  recordGhost(elapsed);
+  const limit = currentTimeLimit;
   if (elapsed >= limit) winGame(true);
 }
 
@@ -707,9 +879,11 @@ function loop() {
   if (gameState === 'running') {
     movePlayer(dt);
     updateCollectibles();
+    const elapsed = (performance.now() - startTime) / 1000;
+    updateGhost(dt, elapsed);
     updateHud();
     const dist = player.pos.distanceTo(exitZone.center);
-    if (dist < exitZone.radius && collectedCount >= TOTAL_COLLECTIBLES) {
+    if (dist < exitZone.radius && collectedCount >= currentGoal) {
       playSfx('win');
       winGame(false);
     }
